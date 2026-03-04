@@ -511,6 +511,44 @@ app.use("/assets", express.static(srcDir));
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
+// Debug helper (no secrets). Use: /debug?shop=your-store.myshopify.com
+app.get("/debug", async (req, res) => {
+  const shopRaw = String(req.query.shop || "");
+  let shop = "";
+  try {
+    shop = shopRaw ? normalizeShop(shopRaw) : "";
+  } catch {
+    shop = "";
+  }
+
+  const storage = config.databaseUrl ? "postgres" : "sqlite";
+  const hasDbUrl = Boolean(config.databaseUrl);
+
+  if (!shop) {
+    return res.json({
+      ok: true,
+      storage,
+      hasDbUrl,
+      appUrl: config.appUrl
+    });
+  }
+
+  const token = await getShopToken(shop);
+  const installedAt = await getShopInstalledAt(shop);
+  const settings = await getShopSettings(shop);
+
+  return res.json({
+    ok: true,
+    storage,
+    hasDbUrl,
+    appUrl: config.appUrl,
+    shop,
+    hasToken: Boolean(token),
+    hasInstalledAt: Boolean(installedAt),
+    hasSettings: Boolean(settings)
+  });
+});
+
 app.listen(config.port, () => {
   console.log(`WAB2C Shopify app listening on :${config.port}`);
   console.log(`APP_URL = ${config.appUrl}`);
