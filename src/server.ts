@@ -39,7 +39,36 @@ function requireSession(shop: string, session: string | undefined): boolean {
   }
 }
 
+function trySignSessionFromShop(shop: string): string | null {
+  const installedAt = getShopInstalledAt(shop);
+  if (!installedAt) return null;
+  return signSession(shop, installedAt);
+}
+
+function isValidShopifySignedQuery(req: express.Request): boolean {
+  // When Shopify loads an embedded app, it includes shop/host/timestamp/hmac in the query.
+  // We can verify this signature to allow access without our custom session param.
+  try {
+    return verifyShopifyOAuthQuery(req.query as any);
+  } catch {
+    return false;
+  }
+}
+
 app.get("/", (req, res) => {
+  // If opened from Shopify Admin with a signed query, redirect into settings with a server-generated session.
+  try {
+    const shop = normalizeShop(String(req.query.shop || ""));
+    if (isValidShopifySignedQuery(req)) {
+      const session = trySignSessionFromShop(shop);
+      if (session) {
+        return res.redirect(`/settings?shop=${encodeURIComponent(shop)}&session=${encodeURIComponent(session)}`);
+      }
+    }
+  } catch {
+    // ignore and show landing page
+  }
+
   res.type("html").send(`
     <html>
       <head><meta charset="utf-8"><title>WAB2C Shopify App</title></head>
@@ -109,7 +138,16 @@ app.get("/auth/callback", async (req, res) => {
 app.get("/settings", (req, res) => {
   const shop = normalizeShop(String(req.query.shop || ""));
   const session = String(req.query.session || "");
-  if (!requireSession(shop, session)) return res.status(401).send("Unauthorized");
+  if (!requireSession(shop, session)) {
+    // If opened from Shopify Admin with signed query parameters, convert it into our session URL.
+    if (isValidShopifySignedQuery(req)) {
+      const signed = trySignSessionFromShop(shop);
+      if (signed) {
+        return res.redirect(`/settings?shop=${encodeURIComponent(shop)}&session=${encodeURIComponent(signed)}`);
+      }
+    }
+    return res.status(401).send("Unauthorized");
+  }
 
   const settings = getShopSettings(shop);
   if (!settings) return res.status(404).send("Settings not found (install app again)");
@@ -272,7 +310,10 @@ app.get("/settings", (req, res) => {
 app.post("/settings", express.urlencoded({ extended: false }), (req, res) => {
   const shop = normalizeShop(String(req.query.shop || ""));
   const session = String(req.query.session || "");
-  if (!requireSession(shop, session)) return res.status(401).send("Unauthorized");
+  if (!requireSession(shop, session)) {
+    // Allow saving if Shopify signed query is present (embedded app navigation).
+    if (!isValidShopifySignedQuery(req)) return res.status(401).send("Unauthorized");
+  }
 
   const wab2cWebhookUrl = String(req.body.wab2c_webhook_url || "").trim();
   const authHeaderName = String(req.body.auth_header_name || "").trim();
@@ -334,7 +375,8 @@ app.post("/settings", express.urlencoded({ extended: false }), (req, res) => {
     enabledTopics
   });
 
-  res.redirect(`/settings?shop=${encodeURIComponent(shop)}&session=${encodeURIComponent(session)}`);
+  const nextSession = requireSession(shop, session) ? session : (trySignSessionFromShop(shop) || session);
+  res.redirect(`/settings?shop=${encodeURIComponent(shop)}&session=${encodeURIComponent(nextSession)}`);
 });
 
 // Webhook receiver needs RAW body for HMAC verification.
