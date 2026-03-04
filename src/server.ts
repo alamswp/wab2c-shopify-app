@@ -59,10 +59,14 @@ app.get("/", async (req, res) => {
   // If opened from Shopify Admin, redirect into settings with a server-generated session.
   try {
     const shop = normalizeShop(String(req.query.shop || ""));
-    const session = await trySignSessionFromShop(shop);
-    if (session) {
-      return res.redirect(`/settings?shop=${encodeURIComponent(shop)}&session=${encodeURIComponent(session)}`);
+    const token = await getShopToken(shop);
+    if (!token) {
+      // Not installed (yet) in our DB → start OAuth install flow.
+      return res.redirect(`/auth?shop=${encodeURIComponent(shop)}`);
     }
+
+    const session = await trySignSessionFromShop(shop);
+    if (session) return res.redirect(`/settings?shop=${encodeURIComponent(shop)}&session=${encodeURIComponent(session)}`);
   } catch {
     // ignore and show landing page
   }
@@ -81,10 +85,10 @@ app.get("/", async (req, res) => {
 });
 
 // Start OAuth
-app.get("/auth", (req, res) => {
+app.get("/auth", async (req, res) => {
   const shop = normalizeShop(String(req.query.shop || ""));
   const state = generateState();
-  void saveOAuthState(shop, state);
+  await saveOAuthState(shop, state);
   const url = buildAuthUrl(shop, state);
   res.redirect(url);
 });
