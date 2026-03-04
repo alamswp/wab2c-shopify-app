@@ -122,11 +122,24 @@ app.get("/auth/callback", async (req, res) => {
       });
     }
 
-    await registerAllWebhooks(shop, accessToken);
+    // Webhook registration may fail if the app version lacks required scopes (e.g. Orders/Webhooks).
+    // Don't block install; show settings and allow retry after fixing scopes.
+    let webhookError = "";
+    try {
+      await registerAllWebhooks(shop, accessToken);
+    } catch (e: any) {
+      webhookError = e?.message || String(e);
+      console.error("Webhook register failed", { shop, err: webhookError });
+    }
 
     const installedAt = getShopInstalledAt(shop)!;
     const session = signSession(shop, installedAt);
-    res.redirect(`/settings?shop=${encodeURIComponent(shop)}&session=${encodeURIComponent(session)}`);
+    const qs = new URLSearchParams({
+      shop,
+      session,
+      ...(webhookError ? { webhook_error: webhookError } : {})
+    });
+    res.redirect(`/settings?${qs.toString()}`);
   } catch (e: any) {
     res.status(500).send(`Install failed: ${e?.message || String(e)}`);
   }
@@ -150,6 +163,7 @@ app.get("/settings", (req, res) => {
 
   const enabled = new Set(settings.enabledTopics);
   const topics = config.webhookTopics;
+  const webhookError = String(req.query.webhook_error || "");
 
   res.type("html").send(`
     <html>
@@ -167,6 +181,20 @@ app.get("/settings", (req, res) => {
         </div>
 
         <hr style="margin: 20px 0;">
+        ${
+          webhookError
+            ? `
+              <div style="border: 1px solid #f3c2c2; background:#fff3f3; color:#7a1a1a; padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+                <div style="font-weight:700; margin-bottom:6px;">Webhook registration failed</div>
+                <div style="font-size:13px; white-space:pre-wrap;">${escapeHtml(webhookError)}</div>
+                <div style="margin-top:10px; font-size:13px;">
+                  Fix your app version scopes (add <b>Orders</b> + <b>Webhooks</b>) then click:
+                  <a href="/register-webhooks?shop=${encodeURIComponent(shop)}&session=${encodeURIComponent(session)}" style="font-weight:700;">Retry webhook registration</a>
+                </div>
+              </div>
+            `
+            : ""
+        }
 
         <form method="post" action="/settings?shop=${encodeURIComponent(shop)}&session=${encodeURIComponent(session)}">
           <div style="margin-bottom: 12px;">
@@ -300,6 +328,26 @@ app.get("/settings", (req, res) => {
       </body>
     </html>
   `);
+});
+
+// Retry webhook registration (after scopes fixed + app reinstalled)
+app.get("/register-webhooks", async (req, res) => {
+  const shop = normalizeShop(String(req.query.shop || ""));
+  const session = String(req.query.session || "");
+  if (!requireSession(shop, session)) return res.status(401).send("Unauthorized");
+
+  const token = getShopToken(shop);
+  if (!token) return res.status(404).send("Shop token not found (reinstall app)");
+
+  try {
+    await registerAllWebhooks(shop, token);
+    return res.redirect(`/settings?shop=${encodeURIComponent(shop)}&session=${encodeURIComponent(session)}`);
+  } catch (e: any) {
+    const msg = e?.message || String(e);
+    return res.redirect(
+      `/settings?shop=${encodeURIComponent(shop)}&session=${encodeURIComponent(session)}&webhook_error=${encodeURIComponent(msg)}`
+    );
+  }
 });
 
 // Parse form body for settings save
