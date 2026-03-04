@@ -1,0 +1,21 @@
+node_modules/
+dist/
+data/
+*.db
+
+# local env/secrets
+env
+.env
+.env.*
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
