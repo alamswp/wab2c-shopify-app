@@ -162,8 +162,29 @@ app.get("/settings", async (req, res) => {
     return res.status(401).send("Unauthorized");
   }
 
-  const settings = await getShopSettings(shop);
-  if (!settings) return res.status(404).send("Settings not found (install app again)");
+  let settings = await getShopSettings(shop);
+  if (!settings) {
+    // Token exists but settings row may be missing (first install, DB reset, or previous insert error).
+    const token = await getShopToken(shop);
+    if (!token) return res.status(404).send("Settings not found (install app again)");
+
+    await upsertShopSettings({
+      shop,
+      wab2cWebhookUrl: config.wab2cWebhookUrl,
+      wab2cWebhookUrls: {},
+      authHeaderName: config.wab2cAuthHeaderName,
+      authHeaderValue: config.wab2cAuthHeaderValue,
+      whatsmarkDomain: config.whatsmarkDomain,
+      whatsmarkTenant: config.whatsmarkTenant,
+      whatsmarkApiToken: config.whatsmarkApiToken,
+      whatsmarkTemplates: config.whatsmarkTemplates,
+      whatsmarkFields: {},
+      simpleMessages: {},
+      enabledTopics: config.webhookTopics
+    });
+    settings = await getShopSettings(shop);
+    if (!settings) return res.status(500).send("Failed to create settings");
+  }
 
   const enabled = new Set(settings.enabledTopics);
   const topics = config.webhookTopics;
