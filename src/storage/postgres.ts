@@ -115,7 +115,7 @@ export async function upsertShopSettings(settings: Omit<ShopSettings, "updatedAt
       enabled_topics,
       updated_at
     ) VALUES (
-      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW()
+      $1,$2,$3::jsonb,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::jsonb,$12::jsonb,NOW()
     )
     ON CONFLICT (shop) DO UPDATE SET
       wab2c_webhook_url = EXCLUDED.wab2c_webhook_url,
@@ -134,16 +134,16 @@ export async function upsertShopSettings(settings: Omit<ShopSettings, "updatedAt
     [
       settings.shop,
       settings.wab2cWebhookUrl,
-      settings.wab2cWebhookUrls || {},
+      JSON.stringify(settings.wab2cWebhookUrls || {}),
       settings.authHeaderName,
       settings.authHeaderValue,
       settings.whatsmarkDomain,
       settings.whatsmarkTenant,
       settings.whatsmarkApiToken,
-      settings.whatsmarkTemplates || {},
-      settings.whatsmarkFields || {},
-      settings.simpleMessages || {},
-      settings.enabledTopics || []
+      JSON.stringify(settings.whatsmarkTemplates || {}),
+      JSON.stringify(settings.whatsmarkFields || {}),
+      JSON.stringify(settings.simpleMessages || {}),
+      JSON.stringify(settings.enabledTopics || [])
     ]
   );
 }
