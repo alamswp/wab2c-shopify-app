@@ -11,6 +11,7 @@ function required(name: string): string {
 export const config = {
   port: Number(process.env.PORT || 3000),
   appUrl: required("APP_URL").replace(/\/+$/, ""),
+  databaseUrl: process.env.DATABASE_URL || "",
   shopifyApiKey: required("SHOPIFY_API_KEY"),
   shopifyApiSecret: required("SHOPIFY_API_SECRET"),
   shopifyScopes: (process.env.SHOPIFY_SCOPES || "read_orders").split(",").map((s) => s.trim()).filter(Boolean),

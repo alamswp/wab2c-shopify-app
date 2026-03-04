@@ -28,8 +28,8 @@ function signSession(shop: string, installedAt: string): string {
   return crypto.createHmac("sha256", config.shopifyApiSecret).update(`${shop}|${installedAt}`).digest("hex");
 }
 
-function requireSession(shop: string, session: string | undefined): boolean {
-  const installedAt = getShopInstalledAt(shop);
+async function requireSession(shop: string, session: string | undefined): Promise<boolean> {
+  const installedAt = await getShopInstalledAt(shop);
   if (!installedAt) return false;
   const expected = signSession(shop, installedAt);
   try {
@@ -39,8 +39,8 @@ function requireSession(shop: string, session: string | undefined): boolean {
   }
 }
 
-function trySignSessionFromShop(shop: string): string | null {
-  const installedAt = getShopInstalledAt(shop);
+async function trySignSessionFromShop(shop: string): Promise<string | null> {
+  const installedAt = await getShopInstalledAt(shop);
   if (!installedAt) return null;
   return signSession(shop, installedAt);
 }
@@ -55,11 +55,11 @@ function isValidShopifySignedQuery(req: express.Request): boolean {
   }
 }
 
-app.get("/", (req, res) => {
+app.get("/", async (req, res) => {
   // If opened from Shopify Admin, redirect into settings with a server-generated session.
   try {
     const shop = normalizeShop(String(req.query.shop || ""));
-    const session = trySignSessionFromShop(shop);
+    const session = await trySignSessionFromShop(shop);
     if (session) {
       return res.redirect(`/settings?shop=${encodeURIComponent(shop)}&session=${encodeURIComponent(session)}`);
     }
@@ -84,7 +84,7 @@ app.get("/", (req, res) => {
 app.get("/auth", (req, res) => {
   const shop = normalizeShop(String(req.query.shop || ""));
   const state = generateState();
-  saveOAuthState(shop, state);
+  void saveOAuthState(shop, state);
   const url = buildAuthUrl(shop, state);
   res.redirect(url);
 });
@@ -96,17 +96,17 @@ app.get("/auth/callback", async (req, res) => {
   const state = String(req.query.state || "");
 
   if (!verifyShopifyOAuthQuery(req.query as any)) return res.status(401).send("Invalid HMAC");
-  if (!consumeOAuthState(shop, state)) return res.status(401).send("Invalid state");
+  if (!(await consumeOAuthState(shop, state))) return res.status(401).send("Invalid state");
   if (!code) return res.status(400).send("Missing code");
 
   try {
     const accessToken = await exchangeAccessToken(shop, code);
-    upsertShopToken(shop, accessToken);
+    await upsertShopToken(shop, accessToken);
 
     // initialize settings if not present
-    const existingSettings = getShopSettings(shop);
+    const existingSettings = await getShopSettings(shop);
     if (!existingSettings) {
-      upsertShopSettings({
+      await upsertShopSettings({
         shop,
         wab2cWebhookUrl: config.wab2cWebhookUrl,
         wab2cWebhookUrls: {},
@@ -132,7 +132,7 @@ app.get("/auth/callback", async (req, res) => {
       console.error("Webhook register failed", { shop, err: webhookError });
     }
 
-    const installedAt = getShopInstalledAt(shop)!;
+    const installedAt = (await getShopInstalledAt(shop))!;
     const session = signSession(shop, installedAt);
     const qs = new URLSearchParams({
       shop,
@@ -146,19 +146,19 @@ app.get("/auth/callback", async (req, res) => {
 });
 
 // Settings UI
-app.get("/settings", (req, res) => {
+app.get("/settings", async (req, res) => {
   const shop = normalizeShop(String(req.query.shop || ""));
   const session = String(req.query.session || "");
-  if (!requireSession(shop, session)) {
+  if (!(await requireSession(shop, session))) {
     // If the shop is installed, convert it into our session URL.
-    const signed = trySignSessionFromShop(shop);
+    const signed = await trySignSessionFromShop(shop);
     if (signed) {
       return res.redirect(`/settings?shop=${encodeURIComponent(shop)}&session=${encodeURIComponent(signed)}`);
     }
     return res.status(401).send("Unauthorized");
   }
 
-  const settings = getShopSettings(shop);
+  const settings = await getShopSettings(shop);
   if (!settings) return res.status(404).send("Settings not found (install app again)");
 
   const enabled = new Set(settings.enabledTopics);
@@ -334,9 +334,9 @@ app.get("/settings", (req, res) => {
 app.get("/register-webhooks", async (req, res) => {
   const shop = normalizeShop(String(req.query.shop || ""));
   const session = String(req.query.session || "");
-  if (!requireSession(shop, session)) return res.status(401).send("Unauthorized");
+  if (!(await requireSession(shop, session))) return res.status(401).send("Unauthorized");
 
-  const token = getShopToken(shop);
+  const token = await getShopToken(shop);
   if (!token) return res.status(404).send("Shop token not found (reinstall app)");
 
   try {
@@ -351,12 +351,12 @@ app.get("/register-webhooks", async (req, res) => {
 });
 
 // Parse form body for settings save
-app.post("/settings", express.urlencoded({ extended: false }), (req, res) => {
+app.post("/settings", express.urlencoded({ extended: false }), async (req, res) => {
   const shop = normalizeShop(String(req.query.shop || ""));
   const session = String(req.query.session || "");
-  if (!requireSession(shop, session)) {
+  if (!(await requireSession(shop, session))) {
     // Allow saving only for installed shops.
-    if (!trySignSessionFromShop(shop)) return res.status(401).send("Unauthorized");
+    if (!(await trySignSessionFromShop(shop))) return res.status(401).send("Unauthorized");
   }
 
   const wab2cWebhookUrl = String(req.body.wab2c_webhook_url || "").trim();
@@ -404,7 +404,7 @@ app.post("/settings", express.urlencoded({ extended: false }), (req, res) => {
 
   if (!wab2cWebhookUrl) return res.status(400).send("WAB2C webhook URL is required");
 
-  upsertShopSettings({
+  await upsertShopSettings({
     shop,
     wab2cWebhookUrl,
     wab2cWebhookUrls,
@@ -419,7 +419,7 @@ app.post("/settings", express.urlencoded({ extended: false }), (req, res) => {
     enabledTopics
   });
 
-  const nextSession = requireSession(shop, session) ? session : (trySignSessionFromShop(shop) || session);
+  const nextSession = (await requireSession(shop, session)) ? session : ((await trySignSessionFromShop(shop)) || session);
   res.redirect(`/settings?shop=${encodeURIComponent(shop)}&session=${encodeURIComponent(nextSession)}`);
 });
 
@@ -439,7 +439,7 @@ app.post(
     const rawBody = Buffer.isBuffer(req.body) ? (req.body as Buffer) : Buffer.from("");
     if (!verifyShopifyWebhook(req, rawBody)) return res.status(401).send("Invalid webhook HMAC");
 
-    const settings = getShopSettings(shop);
+    const settings = await getShopSettings(shop);
     if (!settings) return res.status(404).send("Shop not installed");
     if (settings.enabledTopics.length > 0 && !settings.enabledTopics.includes(topic)) {
       return res.status(200).send("Ignored");
