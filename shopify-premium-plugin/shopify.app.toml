@@ -1,0 +1,31 @@
+name = "WAB2C"
+handle = "wab2c"
+client_id = "YOUR_CLIENT_ID"
+
+[access_scopes]
+scopes = "read_orders,write_orders,read_customers,read_fulfillments,write_fulfillments,read_checkouts"
+
+[auth]
+redirect_urls = [ "https://YOUR_APP_URL/auth/callback" ]
+
+[webhooks]
+api_version = "2025-01"
+
+  [webhooks.privacy_compliance]
+  customer_data_request_url = "https://YOUR_APP_URL/webhooks"
+  customer_deletion_url = "https://YOUR_APP_URL/webhooks"
+  shop_deletion_url = "https://YOUR_APP_URL/webhooks"
+
+  [[webhooks.subscriptions]]
+  topics = [ "orders/create", "orders/cancelled", "orders/fulfilled", "orders/paid", "refunds/create", "orders/updated", "app/uninstalled" ]
+  uri = "/webhooks"
+
+[app_proxy]
+# subpath_prefix = "/apps/wab2c"
+
+[pos]
+embedded = false
+
+[build]
+automatically_update_urls_on_dev = true
+dev_store_url = "tapx-pk.myshopify.com"

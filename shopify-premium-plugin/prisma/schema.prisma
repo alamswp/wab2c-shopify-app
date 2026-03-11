@@ -1,0 +1,159 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Required by @shopify/shopify-app-session-storage-prisma
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String?
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+}
+
+model Shop {
+  id               String              @id @default(cuid())
+  shopDomain       String              @unique
+  planTier         PlanTier            @default(FREE)
+  messageCount     Int                 @default(0)
+  billingCycleStart DateTime           @default(now())
+  chargeId         String?
+  installedAt      DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  connection       WhatsAppConnection?
+  templates        MessageTemplate[]
+  messageLogs      MessageLog[]
+  abandonedCarts   AbandonedCheckout[]
+  settings         ShopSetting?
+}
+
+model ShopSetting {
+  id                    String   @id @default(cuid())
+  shop                  Shop     @relation(fields: [shopDomain], references: [shopDomain], onDelete: Cascade)
+  shopDomain            String   @unique
+  orderCreatedEnabled   Boolean  @default(true)
+  orderPaidEnabled      Boolean  @default(true)
+  orderFulfilledEnabled Boolean  @default(true)
+  orderCancelledEnabled Boolean  @default(true)
+  refundCreatedEnabled  Boolean  @default(true)
+  abandonedCartEnabled  Boolean  @default(true)
+  codConfirmEnabled     Boolean  @default(true)
+  abandonedCartDelay    Int      @default(60) // minutes
+  updatedAt             DateTime @updatedAt
+}
+
+enum PlanTier {
+  FREE
+  STARTER
+  GROWTH
+  PROFESSIONAL
+}
+
+enum ConnectionType {
+  WAB2C_API
+  QR_DIRECT
+}
+
+model WhatsAppConnection {
+  id              String         @id @default(cuid())
+  shop            Shop           @relation(fields: [shopDomain], references: [shopDomain], onDelete: Cascade)
+  shopDomain      String         @unique
+  connectionType  ConnectionType
+  // WAB2C API fields
+  wab2cDomain     String?
+  wab2cTenant     String?
+  wab2cApiToken   String?
+  // QR Direct fields (Baileys session)
+  qrSessionData   String?        @db.Text
+  phoneNumber     String?
+  isConnected     Boolean        @default(false)
+  lastConnectedAt DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+model MessageTemplate {
+  id          String        @id @default(cuid())
+  shop        Shop          @relation(fields: [shopDomain], references: [shopDomain], onDelete: Cascade)
+  shopDomain  String
+  eventType   EventType
+  name        String
+  body        String        @db.Text
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@unique([shopDomain, eventType])
+}
+
+enum EventType {
+  ORDER_CREATED
+  ORDER_PAID
+  ORDER_FULFILLED
+  ORDER_CANCELLED
+  REFUND_CREATED
+  ABANDONED_CART
+  COD_CONFIRMATION
+}
+
+model MessageLog {
+  id            String        @id @default(cuid())
+  shop          Shop          @relation(fields: [shopDomain], references: [shopDomain], onDelete: Cascade)
+  shopDomain    String
+  eventType     EventType
+  recipientPhone String
+  messageBody   String        @db.Text
+  status        MessageStatus @default(QUEUED)
+  errorMessage  String?
+  orderId       String?
+  orderNumber   String?
+  sentAt        DateTime      @default(now())
+  deliveredAt   DateTime?
+
+  @@index([shopDomain, sentAt])
+  @@index([shopDomain, eventType])
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+}
+
+model AbandonedCheckout {
+  id              String    @id @default(cuid())
+  shop            Shop      @relation(fields: [shopDomain], references: [shopDomain], onDelete: Cascade)
+  shopDomain      String
+  checkoutId      String
+  checkoutToken   String?
+  customerPhone   String?
+  customerEmail   String?
+  customerName    String?
+  cartTotal       String?
+  currency        String?
+  recoveryUrl     String?   @db.Text
+  messageSent     Boolean   @default(false)
+  recovered       Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  sendAfter       DateTime
+  sentAt          DateTime?
+
+  @@unique([shopDomain, checkoutId])
+  @@index([messageSent, sendAfter])
+}

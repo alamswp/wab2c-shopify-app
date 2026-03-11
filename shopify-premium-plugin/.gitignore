@@ -1,0 +1,12 @@
+node_modules/
+build/
+.cache/
+dist/
+.env
+.env.*
+!env.example
+*.db
+data/
+.DS_Store
+.idea/
+.vscode/
